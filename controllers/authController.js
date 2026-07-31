@@ -6,7 +6,13 @@ const jwt = require('jsonwebtoken');
 // Handle user registration
 exports.signup = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const name = req.body.name?.trim();
+    const email = req.body.email?.trim().toLowerCase();
+    const { password } = req.body;
+
+    if (!name || !email || !password || password.length < 8) {
+      return res.status(400).json({ message: 'Name, email, and a password of at least 8 characters are required.' });
+    }
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -34,23 +40,31 @@ exports.signup = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email is already registered' });
+    }
+    return res.status(500).json({ message: 'Unable to create account.' });
   }
 };
 
 // Handle user login and token generation
 exports.signin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = req.body.email?.trim().toLowerCase();
+    const { password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required.' });
+    }
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+      return res.status(401).json({ message: 'Invalid email or password.' });
     }
 
     const tokenPayload = { 
@@ -69,6 +83,6 @@ exports.signin = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ message: 'Unable to sign in.' });
   }
 };

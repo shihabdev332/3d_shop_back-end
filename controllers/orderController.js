@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
+const Product = require('../models/Product');
 const mongoose = require('mongoose');
 
 // Create a new order from cart details
@@ -14,13 +15,41 @@ exports.createOrder = async (req, res) => {
       return res.status(401).json({ success: false, error: 'User unauthorized or token invalid' });
     }
 
+    if ((shop && !mongoose.isValidObjectId(shop)) || !Array.isArray(items) || items.length === 0 ||
+        !location?.trim() || !Number.isFinite(Number(totalPrice)) || Number(totalPrice) < 0) {
+      return res.status(400).json({ success: false, error: 'A shop, order items, valid total, and delivery location are required.' });
+    }
+
+    const hasInvalidItem = items.some((item) =>
+      !mongoose.isValidObjectId(item.product) || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1,
+    );
+    if (hasInvalidItem) {
+      return res.status(400).json({ success: false, error: 'Each order item needs a valid product and positive quantity.' });
+    }
+
+    const productIds = items.map((item) => item.product);
+    const products = await Product.find({ _id: { $in: productIds } }).select('price');
+    if (products.length !== new Set(productIds.map(String)).size) {
+      return res.status(400).json({ success: false, error: 'One or more selected products no longer exist.' });
+    }
+
+    const prices = new Map(products.map((product) => [String(product._id), product.price]));
+    const subtotal = items.reduce(
+      (sum, item) => sum + prices.get(String(item.product)) * Number(item.quantity),
+      0,
+    );
+    const expectedTotal = subtotal > 0 ? subtotal + 5 : subtotal;
+    if (Math.round(Number(totalPrice) * 100) !== Math.round(expectedTotal * 100)) {
+      return res.status(400).json({ success: false, error: 'Order total does not match current product prices.' });
+    }
+
     // Formulate new order instance matching frontend payload structure
     const newOrder = new Order({
       user: userId,
-      shop,
+      ...(shop ? { shop } : {}),
       items,
-      totalPrice,
-      location,
+      totalPrice: expectedTotal,
+      location: location.trim(),
       paymentMethod: paymentMethod || 'Cash on Delivery'
     });
 
@@ -44,6 +73,9 @@ exports.createOrder = async (req, res) => {
 exports.getUserOrders = async (req, res) => {
   try {
     const userId = req.user?._id || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'User unauthorized or token invalid' });
+    }
     const orders = await Order.find({ user: userId })
       .populate('items.product')
       .sort({ createdAt: -1 });
@@ -74,11 +106,18 @@ exports.getAllOrders = async (req, res) => {
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
+    const validStatuses = ['Pending', 'Confirmed', 'Preparing', 'Out for Delivery', 'Completed', 'Cancelled'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Invalid order status.' });
+    }
     const updatedOrder = await Order.findByIdAndUpdate(
       req.params.id,
       { status },
       { new: true, runValidators: true }
     );
+    if (!updatedOrder) {
+      return res.status(404).json({ success: false, error: 'Order not found.' });
+    }
     
     res.status(200).json({ success: true, message: 'Order status updated successfully', order: updatedOrder });
   } catch (error) {

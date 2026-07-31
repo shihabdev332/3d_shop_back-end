@@ -19,10 +19,11 @@ const getShopMenu = async (req, res) => {
 
 const createProduct = async (req, res) => {
   try {
-    const { name, price, category, description, is3DModelAvailable } = req.body;
+    const { name, price, category, description, is3DModelAvailable, inStock } = req.body;
+    const numericPrice = Number(price);
 
     // Validate required fields
-    if (!name || !price || !category) {
+    if (!name?.trim() || price === undefined || !Number.isFinite(numericPrice) || numericPrice < 0 || !category?.trim()) {
       return res
         .status(400)
         .json({ message: "Name, price, and category are required" });
@@ -32,12 +33,13 @@ const createProduct = async (req, res) => {
     const imageUrls = req.files ? req.files.map((file) => file.path) : [];
 
     const newProduct = await Product.create({
-      name,
-      price,
-      category,
+      name: name.trim(),
+      price: numericPrice,
+      category: category.trim(),
       description,
       images: imageUrls, // Store the array of Cloudinary URLs
-      is3DModelAvailable: is3DModelAvailable || false,
+      inStock: inStock === undefined || inStock === true || inStock === 'true',
+      is3DModelAvailable: is3DModelAvailable === true || is3DModelAvailable === 'true',
     });
 
     res.status(201).json({
@@ -53,21 +55,60 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    let updatedData = { ...req.body };
+    if (!require('mongoose').isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid product ID.' });
+    }
 
-    // If new images are uploaded, extract paths and update the images array
-    if (req.files && req.files.length > 0) {
-      updatedData.images = req.files.map((file) => file.path);
+    const existingProduct = await Product.findById(id);
+    if (!existingProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    const updatedData = {};
+    const allowedFields = ['name', 'price', 'category', 'description', 'is3DModelAvailable', 'inStock'];
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) updatedData[field] = req.body[field];
+    }
+    if (updatedData.name !== undefined) updatedData.name = updatedData.name.trim();
+    if (updatedData.category !== undefined) updatedData.category = updatedData.category.trim();
+    if (updatedData.price !== undefined) {
+      updatedData.price = Number(updatedData.price);
+      if (!Number.isFinite(updatedData.price) || updatedData.price < 0) {
+        return res.status(400).json({ message: 'Price must be a non-negative number.' });
+      }
+    }
+    if (updatedData.is3DModelAvailable !== undefined) {
+      updatedData.is3DModelAvailable = updatedData.is3DModelAvailable === true || updatedData.is3DModelAvailable === 'true';
+    }
+    if (updatedData.inStock !== undefined) {
+      updatedData.inStock = updatedData.inStock === true || updatedData.inStock === 'true';
+    }
+
+    let removedImages = [];
+    if (req.body.removedImages) {
+      try {
+        removedImages = JSON.parse(req.body.removedImages);
+      } catch {
+        return res.status(400).json({ message: 'Invalid removed image list.' });
+      }
+      if (!Array.isArray(removedImages) || removedImages.some((image) => typeof image !== 'string')) {
+        return res.status(400).json({ message: 'Invalid removed image list.' });
+      }
+    }
+
+    const retainedImages = existingProduct.images.filter((image) => !removedImages.includes(image));
+    const uploadedImages = req.files ? req.files.map((file) => file.path) : [];
+    if (retainedImages.length + uploadedImages.length > 4) {
+      return res.status(400).json({ message: 'A product can have at most four images.' });
+    }
+    if (removedImages.length > 0 || uploadedImages.length > 0) {
+      updatedData.images = [...retainedImages, ...uploadedImages];
     }
 
     const updatedProduct = await Product.findByIdAndUpdate(id, updatedData, {
       new: true,
       runValidators: true,
     });
-
-    if (!updatedProduct) {
-      return res.status(404).json({ message: "Product not found" });
-    }
 
     res.status(200).json({
       message: "Product updated successfully",
@@ -79,6 +120,9 @@ const updateProduct = async (req, res) => {
 };
 const getProductById = async (req, res) => {
   try {
+    if (!require('mongoose').isValidObjectId(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'Invalid product ID.' });
+    }
     const product = await Product.findById(req.params.id);
     if (!product) {
       return res
@@ -95,6 +139,9 @@ const getProductById = async (req, res) => {
 const deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
+    if (!require('mongoose').isValidObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid product ID.' });
+    }
 
     const deletedProduct = await Product.findByIdAndDelete(id);
 

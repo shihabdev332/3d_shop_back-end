@@ -20,7 +20,7 @@ const {
 
 // Import Middlewares
 const { protect, admin } = require("../middlewares/authMiddleware");
-const { uploadCloud } = require("../config/cloudinary");
+const { uploadCloud, ensureCloudinaryConfigured } = require("../config/cloudinary");
 
 // Public Authentication Endpoints
 router.post("/auth/signup", signup);
@@ -39,6 +39,7 @@ router.post(
   "/admin/products",
   protect,
   admin,
+  ensureCloudinaryConfigured,
   uploadCloud.array("images", 4),
   createProduct,
 );
@@ -46,6 +47,7 @@ router.put(
   "/admin/products/:id",
   protect,
   admin,
+  ensureCloudinaryConfigured,
   uploadCloud.array("images", 4),
   updateProduct,
 );

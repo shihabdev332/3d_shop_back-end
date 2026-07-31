@@ -9,7 +9,7 @@ const orderSchema = new mongoose.Schema({
   shop: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Shop',
-    required: true, // Tracks which specific coffee shop this order belongs to
+    required: false,
   },
   items: [
     {

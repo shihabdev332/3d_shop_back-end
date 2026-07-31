@@ -21,6 +21,10 @@ const productSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  inStock: {
+    type: Boolean,
+    default: true
+  },
   is3DModelAvailable: { 
     type: Boolean, 
     default: false // Flag for React Three Fiber rendering
